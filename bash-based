@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+
+trap gexit SIGINT
+trap gexit SIGTERM
+trap gexit SIGKILL
+LOGFILE=$HOME/backup.log
+
+
+logger() {
+    echo $(date '+%Y-%m-%d %H:%M:%S') - $@ | tee -a $LOGFILE
+}
+
+gexit() {
+    logger Signal received... exiting
+    exit 2
+}
+
+
+helpAndExit() {
+    cat << EOF
+
+$1
+
+Usage:
+    --source source folder to be backed up
+    --dest destination folder
+    --snapshot Take snapshot on supported filesystems
+    --fs (stratis|btrfs) The filesystem of the snapshot
+
+    Options for btrfs
+        --btrfs-vol-label The label of the btrfs partition 
+
+    Options for stratis/zfs
+        --fs-name The name of the filesystem
+        --pool-name The name of the pool
+
+Examples: 
+    backup.sh --source / --dest /dst --snapshot --fs zfs --fs-name FS_NAME --pool-name POOL_NAME
+    backup.sh --source / --dest /dst --snapshot --fs stratis --fs-name FS_NAME --pool-name POOL_NAME 
+    backup.sh --source / --dest /dst
+
+
+EOF
+    exit 1
+}
+
+sanityCheck() {
+    if  [[ $TAKE_SNAPSHOT == "yes" ]]; then
+        if [[ $MODE != "stratis"  &&  $MODE != "btrfs" && $MODE != "zfs" ]] ; then
+            helpAndExit "The --fs parameter is required if snapshot requested"
+        elif [[ $EUID -ne 0 ]]; then
+            helpAndExit "Snapshot requires root"
+        fi
+
+    else
+        MODE=""
+    fi
+
+    if [[ $MODE == "stratis" || $MODE == "zfs" && $FS_NAME == "" ]]; then
+        helpAndExit "$MODE filesystem name is required"
+    fi
+
+    if [[ $MODE == "stratis" || $MODE == "zfs" && $POOL_NAME == "" ]]; then
+        helpAndExit "$MODE pool name is required"
+    fi
+
+    if [[ $MODE == "btrfs" && $FS_LABEL == "" ]]; then
+        helpAndExit "Filesystem Label is required in case of btrfs"
+    fi
+
+    if [[ -z $SOURCE ]]; then
+        helpAndExit "Source is required"
+    fi
+
+    if [[ -z $DEST ]]; then
+        helpAndExit "Dest is required"
+    fi
+
+    if ! mountpoint -q $DEST > /dev/null; then
+        logger $DEST is not a mounted filesystem
+        exit 1
+    fi
+
+}
+
+parse_args() {
+    POSITIONAL=()
+    while [[ $# -gt 0 ]]; do
+        key="$1"
+        echo $1 $2
+        case $key in
+            --fs)
+                MODE="$2"
+                shift # past argument
+                shift # past value
+                ;;
+            --fs-name)
+                FS_NAME="$2"
+                shift # past argument
+                shift # past value
+                ;;
+            --pool-name)
+                POOL_NAME="$2"
+                shift # past argument
+                shift # past value
+                ;;
+            --btrfs-vol-label)
+                FS_LABEL="$2"
+                shift # past argument
+                shift # past value
+                ;;
+            --source)
+                SOURCE="$2"
+                shift # past argument
+                shift # past value
+                ;;
+            --dest)
+                DEST="$2"
+                shift # past argument
+                shift # past value
+                ;;
+            --snapshot)
+                TAKE_SNAPSHOT="yes"
+                shift # past argument
+                #shift # past value
+                ;;
+            --extra)
+                EXTRA="$2"
+                echo EXTRA $EXTRA
+                shift # past argument
+                shift # past value
+                ;;
+            --debug)
+                DEBUG="yes"
+                shift # past argument
+                #shift # past value
+                ;;
+            --help)
+                helpAndExit
+                shift # past argument
+                #shift # past value
+                ;;
+            #--default)
+                #  DEFAULT=YES
+                #  shift # past argument
+                #  ;;
+            *)    # unknown option
+                POSITIONAL+=("$1") # save it in an array for later
+                shift # past argument
+                logger Unknown option $key $2
+                exit 1
+                ;;
+        esac
+    done
+
+    set -- "${POSITIONAL[@]}" # restore positional parameters
+}
+
+create_btrfs() {
+    return
+    mkfs.btrfs -L $LABEL /dev/sd?
+    mount /dev/sd? /mnt/tmp
+    btrfs subvolume create /mnt/tmp/@rootfs
+    mkdir /mnt/tmp/.snapshots
+    btrfs subvolume set-default 256 /mnt/tmp
+    umount /mnt/tmp
+}
+
+snapshotfs() {
+    [[ $TAKE_SNAPSHOT != "yes" ]] && return 
+    logger Taking Snapshot with $MODE
+    TODAY=$(date '+%a')
+    SNAPSHOT_TIMESTAMP=$(date '+%a-%Y%m%d')
+
+    if [[ $MODE == "btrfs" ]]; then
+        mount_dir=$(mktemp -d -p /mnt)
+        mount -o subvolid=5 LABEL=$FS_LABEL $mount_dir
+        btrfs subvolume delete $mount_dir/.snapshots/@$TODAY-*   
+        btrfs subvolume snapshot $mount_dir/@rootfs $mount_dir/.snapshots/@$SNAPSHOT_TIMESTAMP
+        umount $mount_dir
+        rmdir $mount_dir
+    elif [[ $MODE == "stratis" ]]; then
+        local toremove=$(stratis fs | grep ${FS_NAME}-${TODAY} | awk '{print $2}')
+        logger Detroying snapshot $toremove
+        stratis fs destroy $POOL_NAME ${toremove}
+        logger Creating $FS_NAME-$SNAPSHOT_TIMESTAMP
+        stratis fs snapshot $POOL_NAME $FS_NAME $FS_NAME-$SNAPSHOT_TIMESTAMP
+    elif [[ $MODE == "zfs" ]]; then
+        local toremove=$(/sbin/zfs list -t snapshot | grep ${FS_NAME}@${TODAY} | awk '{print $1}')
+        if [[ -n $toremove ]]; then
+            logger Removing snapshot $toremove
+            /sbin/zfs destroy $toremove >> $LOGFILE
+        fi
+        logger Creating new snapshot $POOL_NAME/$FS_NAME@$SNAPSHOT_TIMESTAMP
+        /sbin/zfs snapshot $POOL_NAME/$FS_NAME@$SNAPSHOT_TIMESTAMP >> $LOGFILE 2>>$LOGFILE
+    fi
+}
+
+doBackup() {
+    #Should be run by root
+    EXCLUDE_FS=("/dev/*" "/proc/*" "/sys/*" "/tmp/*" "/run/*" "/mnt/*" "/media/*" "/lost+found")
+    RSYNC_CMD="/usr/bin/rsync -aAXHuS --delete "
+    [[ $DEBUG == "yes" ]] && RSYNC_CMD="$RSYNC_CMD --progress"
+    #RSYNC_DELETE="--delete"
+    #RSYNC_DELETE_OPTIONS="--delete-before --delete-excluded"
+
+    logger BACKUP started with arguments: $ARGS
+    for path in "${EXCLUDE_FS[@]}"; do
+        EXCLUDE="$EXCLUDE --exclude=${path}"
+    done
+    logger Rsyncing...
+    $RSYNC_CMD $EXCLUDE $EXTRA $SOURCE $DEST >> $LOGFILE 2>>$LOGFILE
+    echo $(date) > $DEST/last_backup
+    snapshotfs 
+    logger Done.
+}
+
+ARGS=$@
+parse_args $@
+sanityCheck
+doBackup
+
+
