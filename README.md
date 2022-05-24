@@ -15,7 +15,7 @@ the cloning has been made. To take snapshots, the standard zfs and btrfs command
 are used.
 
 For example, this is the snapshots of my system
-
+```
 zfspool                         151G   748G       26K  /mnt/zfspool
 zfspool/rhel-bak                109G   748G     98.3G  /mnt/zfspool/rhel-bak
 zfspool/rhel-bak@Wed-20220518  2.26G      -     96.2G  -
@@ -25,5 +25,5 @@ zfspool/rhel-bak@Sat-20220521   742M      -     98.2G  -
 zfspool/rhel-bak@Sun-20220522   768M      -     98.1G  -
 zfspool/rhel-bak@Mon-20220523  1.13G      -     98.3G  -
 zfspool/rhel-bak@Tue-20220524     0B      -     98.3G  -
-
+```
 
