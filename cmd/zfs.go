@@ -51,7 +51,7 @@ for the same day will be firstly deleted.`,
 		dest, _ := cmd.Flags().GetString("dest")
 		ismount, _ := mountinfo.Mounted(dest)
 		if !ismount {
-			logger.Error("%s is not a mount point\n", dest)
+			logger.Error(dest + "is not a mount point")
 			os.Exit(1)
 		}
 		doRsync(cmd.Flags())

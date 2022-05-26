@@ -50,7 +50,7 @@ You can use the --create flag in order to create the schema required.
 		dest, _ := cmd.Flags().GetString("dest")
 		ismount, _ := mountinfo.Mounted(dest)
 		if !ismount {
-			logger.Error("%s is not a mount point\n", dest)
+			logger.Error(dest + "is not a mount point")
 			os.Exit(1)
 		}
 
@@ -91,5 +91,4 @@ func init() {
 	btrfsCmd.MarkFlagRequired("fslabel")
 	btrfsCmd.Flags().String("create", "", "TODO: create the BTRFS layout")
 	markCommonFlagsRequired(rootCmd)
-
 }
