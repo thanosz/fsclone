@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -15,11 +16,16 @@ func doRsync(flags *pflag.FlagSet) bool {
 	destDir, _ := flags.GetString("dest")
 	extraExcludes, _ := flags.GetStringSlice("exclude")
 	//verbose, _ := flags.GetBool("verbose")
-
-	if len(sourceDir) == 0 || len(destDir) == 0 {
-		logger.Fatal("Empty source or dest")
+	if _, err := os.Stat(sourceDir); os.IsNotExist(err) {
+		logger.Fatal("Source " + sourceDir + " does not exist!")
 		os.Exit(1)
 	}
+
+	if len(sourceDir) == 0 || len(destDir) == 0 {
+		logger.Fatal("source or dest not provided")
+		os.Exit(1)
+	}
+
 	excludes := []string{"/dev/*", "/proc/*", "/sys/*", "/tmp/*", "/run/*", "/mnt/*", "/media/*", "/lost+found"}
 	if len(extraExcludes) > 0 {
 		excludes = append(excludes, extraExcludes...)
@@ -42,19 +48,21 @@ func doRsync(flags *pflag.FlagSet) bool {
 		},
 	)
 
-	// go func() {
-	// 	for {
-	// 		state := task.State()
-	// 		fmt.Printf(
-	// 			"progress: %.2f / rem. %d / tot. %d / sp. %s \n",
-	// 			state.Progress,
-	// 			state.Remain,
-	// 			state.Total,
-	// 			state.Speed,
-	// 		)
-	// 		<-time.After(time.Second)
-	// 	}
-	// }()
+	if verbose, _ := flags.GetBool("verbose"); verbose {
+		go func() {
+			for {
+				state := task.State()
+				fmt.Printf(
+					"progress: %.2f / rem. %d / tot. %d / sp. %s \n",
+					state.Progress,
+					state.Remain,
+					state.Total,
+					state.Speed,
+				)
+				<-time.After(time.Second)
+			}
+		}()
+	}
 
 	if err := task.Run(); err != nil {
 		logger.Warn(task.Log())

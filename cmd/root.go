@@ -76,7 +76,7 @@ func init() {
 		FullTimestamp: true,
 	})
 
-	//rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose")
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Show the progress")
 	rootCmd.PersistentFlags().String("source", "", "the source directory")
 	rootCmd.PersistentFlags().String("dest", "", "the destination directory")
 	rootCmd.PersistentFlags().StringSlice("exclude", []string{""}, "extra directories to exclude")
