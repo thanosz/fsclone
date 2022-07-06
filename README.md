@@ -16,6 +16,7 @@ are used.
 
 For example, this is the snapshots of my system
 ```
+NAME                            USED  AVAIL     REFER  MOUNTPOINT
 zfspool                         151G   748G       26K  /mnt/zfspool
 zfspool/rhel-bak                109G   748G     98.3G  /mnt/zfspool/rhel-bak
 zfspool/rhel-bak@Wed-20220518  2.26G      -     96.2G  -
